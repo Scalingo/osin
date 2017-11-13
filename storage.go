@@ -27,24 +27,24 @@ type Storage interface {
 	GetClient(id string) (Client, error)
 
 	// SaveAuthorize saves authorize data.
-	SaveAuthorize(*AuthorizeData) error
+	SaveAuthorize(AuthorizeData) error
 
 	// LoadAuthorize looks up AuthorizeData by a code.
 	// Client information MUST be loaded together.
 	// Optionally can return error if expired.
-	LoadAuthorize(code string) (*AuthorizeData, error)
+	LoadAuthorize(code string) (AuthorizeData, error)
 
 	// RemoveAuthorize revokes or deletes the authorization code.
 	RemoveAuthorize(code string) error
 
 	// SaveAccess writes AccessData.
 	// If RefreshToken is not blank, it must save in a way that can be loaded using LoadRefresh.
-	SaveAccess(*AccessData) error
+	SaveAccess(AccessData) error
 
 	// LoadAccess retrieves access data by token. Client information MUST be loaded together.
 	// AuthorizeData and AccessData DON'T NEED to be loaded if not easily available.
 	// Optionally can return error if expired.
-	LoadAccess(token string) (*AccessData, error)
+	LoadAccess(token string) (AccessData, error)
 
 	// RemoveAccess revokes or deletes an AccessData.
 	RemoveAccess(token string) error
@@ -52,7 +52,7 @@ type Storage interface {
 	// LoadRefresh retrieves refresh AccessData. Client information MUST be loaded together.
 	// AuthorizeData and AccessData DON'T NEED to be loaded if not easily available.
 	// Optionally can return error if expired.
-	LoadRefresh(token string) (*AccessData, error)
+	LoadRefresh(token string) (AccessData, error)
 
 	// RemoveRefresh revokes or deletes refresh AccessData.
 	RemoveRefresh(token string) error
