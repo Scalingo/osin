@@ -482,14 +482,7 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 		var accessToken, refreshToken string
 
 		if ar.ForceAccessData == nil {
-			// generate access token
-			accessToken, refreshToken, err = s.AccessTokenGen.GenerateAccessToken(ret, ar.GenerateRefresh)
-			if err != nil {
-				w.SetError(E_SERVER_ERROR, "")
-				w.InternalError = err
-				return
-			}
-			ret = &DefaultAccessData{
+			ret2 := &DefaultAccessData{
 				Client:        ar.Client,
 				AuthorizeData: ar.AuthorizeData,
 				AccessData:    ar.AccessData,
@@ -498,9 +491,17 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 				ExpiresIn:     ar.Expiration,
 				UserData:      ar.UserData,
 				Scope:         ar.Scope,
-				AccessToken:   accessToken,
-				RefreshToken:  refreshToken,
 			}
+			// generate access token
+			accessToken, refreshToken, err = s.AccessTokenGen.GenerateAccessToken(ret2, ar.GenerateRefresh)
+			if err != nil {
+				w.SetError(E_SERVER_ERROR, "")
+				w.InternalError = err
+				return
+			}
+			ret2.AccessToken = accessToken
+			ret2.RefreshToken = refreshToken
+			ret = ret2
 		} else {
 			ret = ar.ForceAccessData
 		}
