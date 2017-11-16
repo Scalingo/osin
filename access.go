@@ -26,11 +26,11 @@ type AccessRequest struct {
 	Type          AccessRequestType
 	Code          string
 	Client        Client
-	AuthorizeData *AuthorizeData
-	AccessData    *AccessData
+	AuthorizeData AuthorizeData
+	AccessData    AccessData
 
 	// Force finish to use this access data, to allow access data reuse
-	ForceAccessData *AccessData
+	ForceAccessData AccessData
 	RedirectUri     string
 	Scope           string
 	Username        string
@@ -58,56 +58,66 @@ type AccessRequest struct {
 }
 
 // AccessData represents an access grant (tokens, expiration, client, etc)
-type AccessData struct {
+type AccessData interface {
 	// Client information
-	Client Client
+	GetClient() Client
 
 	// Authorize data, for authorization code
-	AuthorizeData *AuthorizeData
+	GetAuthorizeData() AuthorizeData
 
 	// Previous access data, for refresh token
-	AccessData *AccessData
+	GetAccessData() AccessData
 
 	// Access token
-	AccessToken string
+	GetAccessToken() string
 
 	// Refresh Token. Can be blank
-	RefreshToken string
+	GetRefreshToken() string
 
 	// Token expiration in seconds
-	ExpiresIn int32
+	GetExpiresIn() int32
 
 	// Requested scope
-	Scope string
+	GetScope() string
 
 	// Redirect Uri from request
-	RedirectUri string
+	GetRedirectUri() string
 
 	// Date created
-	CreatedAt time.Time
+	GetCreatedAt() time.Time
 
 	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
+	GetUserData() interface{}
 }
 
-// IsExpired returns true if access expired
-func (d *AccessData) IsExpired() bool {
-	return d.IsExpiredAt(time.Now())
+// AccessData represents an access grant (tokens, expiration, client, etc)
+type DefaultAccessData struct {
+	Client        Client
+	AuthorizeData AuthorizeData
+	AccessData    AccessData
+	AccessToken   string
+	RefreshToken  string
+	ExpiresIn     int32
+	Scope         string
+	RedirectUri   string
+	CreatedAt     time.Time
+	UserData      interface{}
 }
 
-// IsExpiredAt returns true if access expires at time 't'
-func (d *AccessData) IsExpiredAt(t time.Time) bool {
-	return d.ExpireAt().Before(t)
-}
-
-// ExpireAt returns the expiration date
-func (d *AccessData) ExpireAt() time.Time {
-	return d.CreatedAt.Add(time.Duration(d.ExpiresIn) * time.Second)
-}
+func (d *DefaultAccessData) GetClient() Client               { return d.Client }
+func (d *DefaultAccessData) GetAuthorizeData() AuthorizeData { return d.AuthorizeData }
+func (d *DefaultAccessData) GetAccessData() AccessData       { return d.AccessData }
+func (d *DefaultAccessData) GetAccessToken() string          { return d.AccessToken }
+func (d *DefaultAccessData) GetRefreshToken() string         { return d.RefreshToken }
+func (d *DefaultAccessData) GetExpiresIn() int32             { return d.ExpiresIn }
+func (d *DefaultAccessData) GetScope() string                { return d.Scope }
+func (d *DefaultAccessData) GetRedirectUri() string          { return d.RedirectUri }
+func (d *DefaultAccessData) GetCreatedAt() time.Time         { return d.CreatedAt }
+func (d *DefaultAccessData) GetUserData() interface{}        { return d.UserData }
 
 // AccessTokenGen generates access tokens
 type AccessTokenGen interface {
-	GenerateAccessToken(data *AccessData, generaterefresh bool) (accesstoken string, refreshtoken string, err error)
+	GenerateAccessToken(data AccessData, generaterefresh bool) (accesstoken string, refreshtoken string, err error)
 }
 
 // HandleAccessRequest is the http.HandlerFunc for handling access token requests
@@ -193,21 +203,21 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.Client == nil {
+	if ret.AuthorizeData.GetClient() == nil {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.Client.GetRedirectUri() == "" {
+	if ret.AuthorizeData.GetClient().GetRedirectUri() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AuthorizeData.IsExpiredAt(s.Now()) {
+	if IsExpiredAt(ret.AuthorizeData, s.Now()) {
 		w.SetError(E_INVALID_GRANT, "")
 		return nil
 	}
 
 	// code must be from the client
-	if ret.AuthorizeData.Client.GetId() != ret.Client.GetId() {
+	if ret.AuthorizeData.GetClient().GetId() != ret.Client.GetId() {
 		w.SetError(E_INVALID_GRANT, "")
 		return nil
 	}
@@ -221,14 +231,14 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 		w.InternalError = err
 		return nil
 	}
-	if ret.AuthorizeData.RedirectUri != ret.RedirectUri {
+	if ret.AuthorizeData.GetRedirectUri() != ret.RedirectUri {
 		w.SetError(E_INVALID_REQUEST, "")
 		w.InternalError = errors.New("Redirect uri is different")
 		return nil
 	}
 
 	// Verify PKCE, if present in the authorization data
-	if len(ret.AuthorizeData.CodeChallenge) > 0 {
+	if len(ret.AuthorizeData.GetCodeChallenge()) > 0 {
 		// https://tools.ietf.org/html/rfc7636#section-4.1
 		if matched := pkceMatcher.MatchString(ret.CodeVerifier); !matched {
 			w.SetError(E_INVALID_REQUEST, "code_verifier invalid (rfc7636)")
@@ -238,7 +248,7 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 
 		// https: //tools.ietf.org/html/rfc7636#section-4.6
 		codeVerifier := ""
-		switch ret.AuthorizeData.CodeChallengeMethod {
+		switch ret.AuthorizeData.GetCodeChallengeMethod() {
 		case "", PKCE_PLAIN:
 			codeVerifier = ret.CodeVerifier
 		case PKCE_S256:
@@ -248,7 +258,7 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 			w.SetError(E_INVALID_REQUEST, "code_challenge_method transform algorithm not supported (rfc7636)")
 			return nil
 		}
-		if codeVerifier != ret.AuthorizeData.CodeChallenge {
+		if codeVerifier != ret.AuthorizeData.GetCodeChallenge() {
 			w.SetError(E_INVALID_GRANT, "code_verifier invalid (rfc7636)")
 			w.InternalError = errors.New("code_verifier failed comparison with code_challenge")
 			return nil
@@ -256,8 +266,8 @@ func (s *Server) handleAuthorizationCodeRequest(w *Response, r *http.Request) *A
 	}
 
 	// set rest of data
-	ret.Scope = ret.AuthorizeData.Scope
-	ret.UserData = ret.AuthorizeData.UserData
+	ret.Scope = ret.AuthorizeData.GetScope()
+	ret.UserData = ret.AuthorizeData.GetUserData()
 
 	return ret
 }
@@ -326,17 +336,17 @@ func (s *Server) handleRefreshTokenRequest(w *Response, r *http.Request) *Access
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client == nil {
+	if ret.AccessData.GetClient() == nil {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client.GetRedirectUri() == "" {
+	if ret.AccessData.GetClient().GetRedirectUri() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
 
 	// client must be the same as the previous token
-	if ret.AccessData.Client.GetId() != ret.Client.GetId() {
+	if ret.AccessData.GetClient().GetId() != ret.Client.GetId() {
 		w.SetError(E_INVALID_CLIENT, "")
 		w.InternalError = errors.New("Client id must be the same from previous token")
 		return nil
@@ -344,13 +354,13 @@ func (s *Server) handleRefreshTokenRequest(w *Response, r *http.Request) *Access
 	}
 
 	// set rest of data
-	ret.RedirectUri = ret.AccessData.RedirectUri
-	ret.UserData = ret.AccessData.UserData
+	ret.RedirectUri = ret.AccessData.GetRedirectUri()
+	ret.UserData = ret.AccessData.GetUserData()
 	if ret.Scope == "" {
-		ret.Scope = ret.AccessData.Scope
+		ret.Scope = ret.AccessData.GetScope()
 	}
 
-	if extraScopes(ret.AccessData.Scope, ret.Scope) {
+	if extraScopes(ret.AccessData.GetScope(), ret.Scope) {
 		w.SetError(E_ACCESS_DENIED, "")
 		w.InternalError = errors.New("the requested scope must not include any scope not originally granted by the resource owner")
 		return nil
@@ -467,12 +477,12 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 		redirectUri = ar.RedirectUri
 	}
 	if ar.Authorized {
-		var ret *AccessData
+		var ret AccessData
 		var err error
+		var accessToken, refreshToken string
 
 		if ar.ForceAccessData == nil {
-			// generate access token
-			ret = &AccessData{
+			ret2 := &DefaultAccessData{
 				Client:        ar.Client,
 				AuthorizeData: ar.AuthorizeData,
 				AccessData:    ar.AccessData,
@@ -482,14 +492,16 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 				UserData:      ar.UserData,
 				Scope:         ar.Scope,
 			}
-
 			// generate access token
-			ret.AccessToken, ret.RefreshToken, err = s.AccessTokenGen.GenerateAccessToken(ret, ar.GenerateRefresh)
+			accessToken, refreshToken, err = s.AccessTokenGen.GenerateAccessToken(ret2, ar.GenerateRefresh)
 			if err != nil {
 				w.SetError(E_SERVER_ERROR, "")
 				w.InternalError = err
 				return
 			}
+			ret2.AccessToken = accessToken
+			ret2.RefreshToken = refreshToken
+			ret = ret2
 		} else {
 			ret = ar.ForceAccessData
 		}
@@ -502,27 +514,27 @@ func (s *Server) FinishAccessRequest(w *Response, r *http.Request, ar *AccessReq
 		}
 
 		// remove authorization token
-		if ret.AuthorizeData != nil {
-			w.Storage.RemoveAuthorize(ret.AuthorizeData.Code)
+		if ret.GetAuthorizeData() != nil {
+			w.Storage.RemoveAuthorize(ret.GetAuthorizeData().GetCode())
 		}
 
 		// remove previous access token
-		if ret.AccessData != nil && !s.Config.RetainTokenAfterRefresh {
-			if ret.AccessData.RefreshToken != "" {
-				w.Storage.RemoveRefresh(ret.AccessData.RefreshToken)
+		if ret.GetAccessData() != nil && !s.Config.RetainTokenAfterRefresh {
+			if ret.GetAccessData().GetRefreshToken() != "" {
+				w.Storage.RemoveRefresh(ret.GetAccessData().GetRefreshToken())
 			}
-			w.Storage.RemoveAccess(ret.AccessData.AccessToken)
+			w.Storage.RemoveAccess(ret.GetAccessData().GetAccessToken())
 		}
 
 		// output data
-		w.Output["access_token"] = ret.AccessToken
+		w.Output["access_token"] = ret.GetAccessToken()
 		w.Output["token_type"] = s.Config.TokenType
-		w.Output["expires_in"] = ret.ExpiresIn
-		if ret.RefreshToken != "" {
-			w.Output["refresh_token"] = ret.RefreshToken
+		w.Output["expires_in"] = ret.GetExpiresIn()
+		if ret.GetRefreshToken() != "" {
+			w.Output["refresh_token"] = ret.GetRefreshToken()
 		}
-		if ret.Scope != "" {
-			w.Output["scope"] = ret.Scope
+		if ret.GetScope() != "" {
+			w.Output["scope"] = ret.GetScope()
 		}
 	} else {
 		w.SetError(E_ACCESS_DENIED, "")

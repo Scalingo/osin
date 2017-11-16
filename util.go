@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Parse basic authentication header
@@ -105,4 +106,25 @@ func getClientAuth(w *Response, r *http.Request, allowQueryParams bool) *BasicAu
 		return nil
 	}
 	return auth
+}
+
+
+type Expirable interface {
+	GetCreatedAt() time.Time
+	GetExpiresIn() int32
+}
+
+// IsExpired is true if authorization expired
+func IsExpired(d Expirable) bool {
+	return IsExpiredAt(d, time.Now())
+}
+
+// IsExpired is true if authorization expires at time 't'
+func IsExpiredAt(d Expirable, t time.Time) bool {
+	return ExpireAt(d).Before(t)
+}
+
+// ExpireAt returns the expiration date
+func ExpireAt(d Expirable) time.Time {
+	return d.GetCreatedAt().Add(time.Duration(d.GetExpiresIn()) * time.Second)
 }

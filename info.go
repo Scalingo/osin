@@ -7,8 +7,8 @@ import (
 
 // InfoRequest is a request for information about some AccessData
 type InfoRequest struct {
-	Code       string      // Code to look up
-	AccessData *AccessData // AccessData associated with Code
+	Code       string     // Code to look up
+	AccessData AccessData // AccessData associated with Code
 }
 
 // HandleInfoRequest is an http.HandlerFunc for server information
@@ -44,15 +44,15 @@ func (s *Server) HandleInfoRequest(w *Response, r *http.Request) *InfoRequest {
 		w.SetError(E_INVALID_REQUEST, "")
 		return nil
 	}
-	if ret.AccessData.Client == nil {
+	if ret.AccessData.GetClient() == nil {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.Client.GetRedirectUri() == "" {
+	if ret.AccessData.GetClient().GetRedirectUri() == "" {
 		w.SetError(E_UNAUTHORIZED_CLIENT, "")
 		return nil
 	}
-	if ret.AccessData.IsExpiredAt(s.Now()) {
+	if IsExpiredAt(ret.AccessData, s.Now()) {
 		w.SetError(E_INVALID_GRANT, "")
 		return nil
 	}
@@ -68,14 +68,14 @@ func (s *Server) FinishInfoRequest(w *Response, r *http.Request, ir *InfoRequest
 	}
 
 	// output data
-	w.Output["client_id"] = ir.AccessData.Client.GetId()
-	w.Output["access_token"] = ir.AccessData.AccessToken
+	w.Output["client_id"] = ir.AccessData.GetClient().GetId()
+	w.Output["access_token"] = ir.AccessData.GetAccessToken()
 	w.Output["token_type"] = s.Config.TokenType
-	w.Output["expires_in"] = ir.AccessData.CreatedAt.Add(time.Duration(ir.AccessData.ExpiresIn)*time.Second).Sub(s.Now()) / time.Second
-	if ir.AccessData.RefreshToken != "" {
-		w.Output["refresh_token"] = ir.AccessData.RefreshToken
+	w.Output["expires_in"] = ir.AccessData.GetCreatedAt().Add(time.Duration(ir.AccessData.GetExpiresIn())*time.Second).Sub(s.Now()) / time.Second
+	if ir.AccessData.GetRefreshToken() != "" {
+		w.Output["refresh_token"] = ir.AccessData.GetRefreshToken()
 	}
-	if ir.AccessData.Scope != "" {
-		w.Output["scope"] = ir.AccessData.Scope
+	if ir.AccessData.GetScope() != "" {
+		w.Output["scope"] = ir.AccessData.GetScope()
 	}
 }

@@ -31,21 +31,10 @@ type DefaultClient struct {
 	UserData    interface{}
 }
 
-func (d *DefaultClient) GetId() string {
-	return d.Id
-}
-
-func (d *DefaultClient) GetSecret() string {
-	return d.Secret
-}
-
-func (d *DefaultClient) GetRedirectUri() string {
-	return d.RedirectUri
-}
-
-func (d *DefaultClient) GetUserData() interface{} {
-	return d.UserData
-}
+func (d *DefaultClient) GetId() string            { return d.Id }
+func (d *DefaultClient) GetSecret() string        { return d.Secret }
+func (d *DefaultClient) GetRedirectUri() string   { return d.RedirectUri }
+func (d *DefaultClient) GetUserData() interface{} { return d.UserData }
 
 // Implement the ClientSecretMatcher interface
 func (d *DefaultClient) ClientSecretMatches(secret string) bool {

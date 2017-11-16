@@ -1,6 +1,7 @@
 package osin
 
 import (
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -50,55 +51,65 @@ type AuthorizeRequest struct {
 }
 
 // Authorization data
-type AuthorizeData struct {
+type AuthorizeData interface {
 	// Client information
-	Client Client
+	GetClient() Client
 
 	// Authorization code
-	Code string
+	GetCode() string
 
 	// Token expiration in seconds
-	ExpiresIn int32
+	GetExpiresIn() int32
 
 	// Requested scope
-	Scope string
+	GetScope() string
 
 	// Redirect Uri from request
-	RedirectUri string
+	GetRedirectUri() string
 
 	// State data from request
-	State string
+	GetState() string
 
 	// Date created
-	CreatedAt time.Time
+	GetCreatedAt() time.Time
 
 	// Data to be passed to storage. Not used by the library.
-	UserData interface{}
+	GetUserData() interface{}
 
-	// Optional code_challenge as described in rfc7636
-	CodeChallenge string
+	// Data to be passed to storage. Not used by the library.
+	GetCodeChallenge() string
+
 	// Optional code_challenge_method as described in rfc7636
+	GetCodeChallengeMethod() string
+}
+
+type DefaultAuthorizeData struct {
+	Client              Client
+	Code                string
+	ExpiresIn           int32
+	Scope               string
+	RedirectUri         string
+	State               string
+	CreatedAt           time.Time
+	UserData            interface{}
+	CodeChallenge       string
 	CodeChallengeMethod string
 }
 
-// IsExpired is true if authorization expired
-func (d *AuthorizeData) IsExpired() bool {
-	return d.IsExpiredAt(time.Now())
-}
-
-// IsExpired is true if authorization expires at time 't'
-func (d *AuthorizeData) IsExpiredAt(t time.Time) bool {
-	return d.ExpireAt().Before(t)
-}
-
-// ExpireAt returns the expiration date
-func (d *AuthorizeData) ExpireAt() time.Time {
-	return d.CreatedAt.Add(time.Duration(d.ExpiresIn) * time.Second)
-}
+func (d *DefaultAuthorizeData) GetClient() Client              { return d.Client }
+func (d *DefaultAuthorizeData) GetCode() string                { return d.Code }
+func (d *DefaultAuthorizeData) GetExpiresIn() int32            { return d.ExpiresIn }
+func (d *DefaultAuthorizeData) GetScope() string               { return d.Scope }
+func (d *DefaultAuthorizeData) GetRedirectUri() string         { return d.RedirectUri }
+func (d *DefaultAuthorizeData) GetState() string               { return d.State }
+func (d *DefaultAuthorizeData) GetCreatedAt() time.Time        { return d.CreatedAt }
+func (d *DefaultAuthorizeData) GetUserData() interface{}       { return d.UserData }
+func (d *DefaultAuthorizeData) GetCodeChallenge() string       { return d.CodeChallenge }
+func (d *DefaultAuthorizeData) GetCodeChallengeMethod() string { return d.CodeChallengeMethod }
 
 // AuthorizeTokenGen is the token generator interface
 type AuthorizeTokenGen interface {
-	GenerateAuthorizeToken(data *AuthorizeData) (string, error)
+	GenerateAuthorizeToken(data AuthorizeData) (string, error)
 }
 
 // HandleAuthorizeRequest is the main http.HandlerFunc for handling
@@ -130,6 +141,7 @@ func (s *Server) HandleAuthorizeRequest(w *Response, r *http.Request) *Authorize
 		return nil
 	}
 	if ret.Client == nil {
+		log.Println("1")
 		w.SetErrorState(E_UNAUTHORIZED_CLIENT, "", ret.State)
 		return nil
 	}
@@ -231,7 +243,7 @@ func (s *Server) FinishAuthorizeRequest(w *Response, r *http.Request, ar *Author
 			}
 		} else {
 			// generate authorization token
-			ret := &AuthorizeData{
+			ret := &DefaultAuthorizeData{
 				Client:      ar.Client,
 				CreatedAt:   s.Now(),
 				ExpiresIn:   ar.Expiration,
